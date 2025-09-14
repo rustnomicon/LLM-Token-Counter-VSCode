@@ -2,6 +2,16 @@
 
 All notable changes to the "gpt-token-counter" extension will be documented in this file.
 
+## [1.3.0]
+
+### Added
+- Gemini family token counting (approximate). Uses tiktoken `o200k_base`/`cl100k_base` when available; otherwise ~4 chars/token fallback as stated [in their website](https://ai.google.dev/gemini-api/docs/tokens?lang=node#about-tokens).
+
+### Changed
+- UI now shows model families (GPT, Claude, Gemini) instead of individual versions.
+- GPT tokenizer now uses `gpt-5` tokenizer with `o200k_base` and `cl100k_base` as the fallback.
+- Simplified special token handling by family.
+
 ## [1.2.5]
 
 ### Changed

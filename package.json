@@ -2,7 +2,7 @@
   "name": "gpt-token-counter-live",
   "displayName": "Live LLM Token Counter",
   "description": "Live Token Counter for Language Models",
-  "version": "1.2.5",
+  "version": "1.3.0",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",
-    "tiktoken": "^1.0.20"
+    "tiktoken": "^1.0.22"
   },
   "contributes": {
     "commands": [
@@ -64,7 +64,7 @@
       },
       {
         "command": "gpt-token-counter-live.changeModel",
-        "title": "Change Model"
+        "title": "Change Model Family"
       }
     ]
   },
@@ -73,6 +73,8 @@
     "OpenAI",
     "Claude",
     "Anthropic",
+    "Gemini",
+    "Google AI",
     "Token",
     "Counter",
     "LLM",

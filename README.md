@@ -1,12 +1,12 @@
 <div align="center">
     <h1>Live LLM Token Counter</h1>
     <img src="images/icon.png" alt="Logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.2.5-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
-    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="OpenVSX Version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.2.5%20-%20%23bb3ec2?style=flat"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.3.0-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="OpenVSX Version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.3.0%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
-The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined using these tokenizers for [GPT](https://www.npmjs.com/package/tiktoken) and [Claude](https://github.com/anthropics/anthropic-tokenizer-typescript).
+The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined per model family using: [GPT via tiktoken](https://www.npmjs.com/package/tiktoken), [Claude via Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript), and Gemini via a local approximation.
 
 This tool is built to get a speedy token counting result right on VS Code while you are working on prompting files. I personally needed a lot while working on many LLM projects, so I decided to make one for myself. I hope this helps you too!
 
@@ -20,8 +20,10 @@ https://github.com/BedirT/LLM-Token-Counter-VSCode/assets/10860127/d250f139-b1b1
 
 - **Easy Activation:** The extension is activated as soon as VS Code starts up, so you don't have to manually activate it every time you start your editor.
 
-- **Model Selection:** The extension allows you to select the model you want to use for token counting. The default model is the OpenAI's GPT-4 model. All OpenAI and Anthropic models are available. You can change the model by clicking on the token count in the status bar and selecting the model you want to use.
-  - **Note:** Claude models (marked with *) use an approximate token counter as Anthropic doesn't provide an exact tokenizer for Claude-3.5 and Claude-3.7 models.
+- **Model Family Selection:** Choose a model family instead of individual versions. Click the token count in the status bar and select one of: GPT (OpenAI), Claude (Anthropic), or Gemini (Google AI).
+  - **GPT:** Uses tiktoken `encoding_for_model('gpt-5')` to follow the latest GPT mapping. Falls back to `o200k_base`, then `cl100k_base` when needed.
+  - **Claude:** Uses Anthropic's tokenizer-based approximation for the Claude family (not an exact, model-official tokenizer for all Claude versions). Counts are close but may differ slightly from server-side accounting.
+  - **Gemini:** No public local tokenizer. Approximated using `o200k_base`/`cl100k_base` when available, otherwise ~4 characters per token.
 
 https://github.com/BedirT/LLM-Token-Counter-VSCode/assets/10860127/5dffabb0-28c2-49cb-aeb2-4c8d2a62b047
 
@@ -39,6 +41,12 @@ The extension does not currently add any VS Code settings.
 There are currently no known issues. If you encounter a problem, please report it on the [issue tracker](https://github.com/BedirT/LLM-Token-Counter-VSCode/issues).
 
 ## Release Notes
+
+### 1.3.0
+- Switch to model families in the UI: GPT, Claude, Gemini.
+- Add Gemini token counting (approximate: `o200k_base`/`cl100k_base`, fallback ~4 chars/token).
+- GPT tokenizer now uses `encoding_for_model('gpt-5')` with graceful fallbacks.
+- Updated `tiktoken` to 1.0.22.
 
 ### 1.2.3
 - Added support for new OpenAI models: o3-mini, o1, o1-mini, gpt-4o-mini

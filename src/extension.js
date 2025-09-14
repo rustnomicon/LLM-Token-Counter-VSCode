@@ -1,5 +1,5 @@
 const vscode = require('vscode');
-const { encoding_for_model } = require('tiktoken');
+const { encoding_for_model, get_encoding } = require('tiktoken');
 const { countTokens } = require('@anthropic-ai/tokenizer');
 
 let encoder = null;  // Initialize encoder as null
@@ -11,50 +11,67 @@ function activate(context) {
     let statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBar.command = "gpt-token-counter-live.changeModel";
 
-    const modelProviders = {
-        'openai': [
-            'o3-mini',
-            'o1',
-            'o1-mini',
-            'gpt-4o',
-            'gpt-4o-mini',
-            'gpt-4',
-            'gpt-3.5-turbo',
-        ],
-        'anthropic': [
-            'claude-3.5*', // There is no exact tokenizer for claude-3
-            'claude-3.7*',
-        ]
+    // Model families instead of individual models
+    const modelFamilies = {
+        'openai': 'GPT',
+        'anthropic': 'Claude',
+        'gemini': 'Gemini'
     };
 
-    const specialTokens = {
-        'o3-mini': ['<|endoftext|>'],
-        'o1': ['<|endoftext|>'],
-        'o1-mini': ['<|endoftext|>'],
-        'gpt-4o': ['<|endoftext|>'],
-        'gpt-4o-mini': ['<|endoftext|>'],
-        'gpt-4': ['<|endoftext|>'],
-        'gpt-3.5-turbo': ['<|endoftext|>'],
-        'claude-3.5*': [], // Approximate
-        'claude-3.7*': [], // Approximate
+    // Special tokens handled per family (kept minimal)
+    const specialTokensByFamily = {
+        'openai': ['<|endoftext|>'],
+        'anthropic': [],
+        'gemini': []
     };
 
-    let currentModel = modelProviders.openai[0];
     let currentProvider = 'openai';
+    let currentFamilyName = modelFamilies[currentProvider];
 
     context.subscriptions.push(statusBar);
 
-    // Function to initialize the encoder
-    function initializeEncoder(model) {
+    // Function to initialize the encoder for the selected family
+    function initializeEncoderForFamily(provider) {
         if (encoder) {
             encoder.free();
         }
-        encoder = encoding_for_model(model);
+        // For OpenAI GPT family, prefer o200k_base (latest models),
+        // and fall back to cl100k_base if unavailable.
+        if (provider === 'openai') {
+            try {
+                // Use the latest GPT family mapping via tiktoken's model registry
+                encoder = encoding_for_model('gpt-5');
+            } catch (e0) {
+                try {
+                    encoder = get_encoding('o200k_base');
+                } catch (e1) {
+                    try {
+                        encoder = get_encoding('cl100k_base');
+                    } catch (e2) {
+                        encoder = null;
+                    }
+                }
+            }
+        } else if (provider === 'gemini') {
+            // Gemini has no public local tokenizer; approximate with o200k_base/cl100k_base
+            try {
+                encoder = get_encoding('o200k_base');
+            } catch (e1) {
+                try {
+                    encoder = get_encoding('cl100k_base');
+                } catch (e2) {
+                    encoder = null; // will fall back to char-based approximation
+                }
+            }
+        } else {
+            // Anthropic doesn't use tiktoken; keep encoder null
+            encoder = null;
+        }
     }
 
     // Function to handle special tokens
-    function handleSpecialTokens(text, model) {
-        const tokens = specialTokens[model] || [];
+    function handleSpecialTokens(text, provider) {
+        const tokens = specialTokensByFamily[provider] || [];
         let specialTokenCount = 0;
         tokens.forEach(token => {
             const occurrences = text.split(token).length - 1;
@@ -76,18 +93,27 @@ function activate(context) {
         let text = selection.isEmpty ? document.getText() : document.getText(selection);
 
         // Handle special tokens before tokenizing
-        const { text: processedText, specialTokenCount } = handleSpecialTokens(text, currentModel);
+        const { text: processedText, specialTokenCount } = handleSpecialTokens(text, currentProvider);
 
         let tokenCount;
         if (currentProvider === 'anthropic') {
             tokenCount = countTokens(processedText) + specialTokenCount;
+        } else if (currentProvider === 'gemini') {
+            if (encoder) {
+                // Approximate Gemini with available tiktoken encoder (o200k/cl100k)
+                tokenCount = encoder.encode(processedText).length + specialTokenCount;
+            } else {
+                // Fallback approximation: ~4 characters per token
+                const charCount = processedText.length;
+                tokenCount = Math.ceil(charCount / 4) + specialTokenCount;
+            }
         } else if (encoder) {
             tokenCount = encoder.encode(processedText).length + specialTokenCount;
         } else {
             tokenCount = specialTokenCount;
         }
 
-        statusBar.text = `Token Count: ${tokenCount} (${currentModel})`;
+        statusBar.text = `Token Count: ${tokenCount} (${currentFamilyName})`;
         statusBar.show();
     };
 
@@ -96,23 +122,21 @@ function activate(context) {
     vscode.workspace.onDidChangeTextDocument(updateTokenCount, null, context.subscriptions);
 
     let disposable = vscode.commands.registerCommand('gpt-token-counter-live.changeModel', async function () {
-        let flatModelList = Object.entries(modelProviders).reduce((acc, [provider, models]) => acc.concat(models.map(model => `${provider}: ${model}`)), []);
-        let selection = await vscode.window.showQuickPick(flatModelList, {
-            placeHolder: 'Select a Model',
+        const items = Object.entries(modelFamilies).map(([provider, family]) => `${provider}: ${family}`);
+        let selection = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Select a Model Family',
         });
 
         if (selection) {
-            const [provider, model] = selection.split(': ');
+            const [provider, family] = selection.split(': ');
             currentProvider = provider;
-            currentModel = model;
+            currentFamilyName = family;
 
-            if (currentProvider === 'openai') {
-                try {
-                    initializeEncoder(currentModel);
-                } catch (error) {
-                    vscode.window.showErrorMessage(`Failed to load encoder for model ${currentModel}: ${error.message}`);
-                    return;
-                }
+            try {
+                initializeEncoderForFamily(currentProvider);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to initialize tokenizer for ${currentFamilyName}: ${error.message}`);
+                // Continue with approximation where applicable
             }
 
             updateTokenCount();
@@ -122,7 +146,7 @@ function activate(context) {
     context.subscriptions.push(disposable);
 
     // Initial update
-    initializeEncoder(currentModel);
+    initializeEncoderForFamily(currentProvider);
     updateTokenCount();
 }
 
