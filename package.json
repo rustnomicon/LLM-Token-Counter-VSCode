@@ -2,7 +2,7 @@
   "name": "gpt-token-counter-live",
   "displayName": "Live LLM Token Counter",
   "description": "Live Token Counter for Language Models",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -14,6 +14,8 @@
     "onStartupFinished",
     "onCommand:gpt-token-counter-live.countTokens",
     "onCommand:gpt-token-counter-live.changeModel",
+    "onCommand:gpt-token-counter-live.toggleHighlight",
+    "onCommand:gpt-token-counter-live.configureHighlights",
     "onLanguage:plaintext",
     "onLanguage:javascript",
     "onLanguage:typescript"
@@ -65,8 +67,36 @@
       {
         "command": "gpt-token-counter-live.changeModel",
         "title": "Change Model Family"
+      },
+      {
+        "command": "gpt-token-counter-live.toggleHighlight",
+        "title": "Toggle Token Highlighting"
+      },
+      {
+        "command": "gpt-token-counter-live.configureHighlights",
+        "title": "Configure Token Highlight Colors"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Live LLM Token Counter",
+      "properties": {
+        "gpt-token-counter-live.defaultModelFamily": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "gemini"
+          ],
+          "default": "openai",
+          "markdownDescription": "Model family selected by default when the extension activates."
+        },
+        "gpt-token-counter-live.statusBarDisplayTemplate": {
+          "type": "string",
+          "default": "Token Count: {count} ({family})",
+          "markdownDescription": "Template used for the status bar text. Supported placeholders: `{count}`, `{family}`, `{provider}` (alias `{model}` for family)."
+        }
+      }
+    }
   },
   "keywords": [
     "GPT",
