@@ -1,4 +1,7 @@
 const vscode = require('vscode');
+const { spawn } = require('child_process');
+const path = require('path');
+
 const { encoding_for_model, get_encoding } = require('tiktoken');
 const { countTokens, getTokenizer } = require('@anthropic-ai/tokenizer');
 const { TextDecoder } = require('util');
@@ -13,7 +16,8 @@ const DEFAULT_STATUS_TEMPLATE = 'Token Count: {count} ({family})';
 const MODEL_FAMILIES = {
     'openai': 'GPT',
     'anthropic': 'Claude',
-    'gemini': 'Gemini'
+    'gemini': 'Gemini',
+    'qwen': 'Qwen'
 };
 
 const HIGHLIGHT_EVEN_KEY = 'highlightEvenColor';
@@ -224,6 +228,99 @@ let tokenizerState = {
     supportsHighlight: false,
     requiresNormalization: false
 };
+
+let qwenServerProcess = null;
+let isQwenServerStarting = false;
+
+async function getQwenTokenizationFromServer(text) {
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const url = config.get('qwenTokenServerUrl') || 'http://127.0.0.1:8009/qwen/tokenize';
+
+    const nodeFetch = await import('node-fetch');
+    const res = await nodeFetch.default(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+    });
+
+    if (!res.ok) {
+        throw new Error(`Qwen token server HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!data || typeof data.count !== 'number' || !Array.isArray(data.tokens) || !Array.isArray(data.offsets)) {
+        throw new Error('Invalid response from Qwen token server');
+    }
+    return data; // { count, tokens, offsets }
+}
+
+async function startQwenServer() {
+    if (isQwenServerStarting || qwenServerProcess) {
+        return;
+    }
+
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const autoStart = config.get('qwenAutoStartServer');
+
+    if (!autoStart) {
+        return;
+    }
+
+    isQwenServerStarting = true;
+
+    try {
+        const pythonPath = config.get('qwenPythonPath') || 'python';
+        const serverScriptPath = path.join(__dirname, '..', 'scripts', 'qwen_token_server.py');
+
+        vscode.window.showInformationMessage('Starting Qwen token server...');
+
+        qwenServerProcess = spawn(pythonPath, [serverScriptPath], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            detached: false
+        });
+
+        qwenServerProcess.on('error', (error) => {
+            vscode.window.showErrorMessage(`Failed to start Qwen server: ${error.message}`);
+            qwenServerProcess = null;
+            isQwenServerStarting = false;
+        });
+
+        qwenServerProcess.on('close', (code) => {
+            if (code !== 0) {
+                vscode.window.showErrorMessage(`Qwen server exited with code ${code}`);
+            }
+            qwenServerProcess = null;
+            isQwenServerStarting = false;
+        });
+
+        qwenServerProcess.stderr.on('data', (data) => {
+            console.error(`Qwen server error: ${data}`);
+        });
+
+        qwenServerProcess.stdout.on('data', (data) => {
+            console.log(`Qwen server output: ${data}`);
+        });
+
+        // Give the server a moment to start up
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        vscode.window.showInformationMessage('Qwen token server started successfully');
+    } catch (error) {
+        vscode.window.showErrorMessage(`Error starting Qwen server: ${error.message}`);
+        isQwenServerStarting = false;
+    }
+}
+
+function stopQwenServer() {
+    if (qwenServerProcess) {
+        qwenServerProcess.kill();
+        qwenServerProcess = null;
+        vscode.window.showInformationMessage('Qwen token server stopped');
+    }
+}
+
+
+
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -468,7 +565,16 @@ function activate(context) {
                     tokenizerState.encoder = null;
                 }
             }
+        } else if (provider === 'qwen') {
+            tokenizerState.encoder = null;
+            tokenizerState.supportsHighlight = true;
+            // Start the Qwen server if auto-start is enabled
+            void startQwenServer();
+        } else {
+            // Stop the Qwen server when switching away from Qwen
+            stopQwenServer();
         }
+
 
         if (highlightEnabled && !tokenizerState.supportsHighlight) {
             highlightEnabled = false;
@@ -516,7 +622,7 @@ function activate(context) {
         };
     }
 
-    let updateTokenCount = () => {
+    let updateTokenCount = async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             statusBar.hide();
@@ -536,7 +642,61 @@ function activate(context) {
         const selection = editor.selection;
         const text = selection.isEmpty ? document.getText() : document.getText(selection);
         const baseOffset = selection.isEmpty ? 0 : document.offsetAt(selection.start);
+        // qwen tokenization via server
+        if (currentProvider === 'qwen') {
+            try {
+                const { count, tokens, offsets } = await getQwenTokenizationFromServer(text);
 
+                statusBar.text = applyStatusBarTemplate(statusBarTemplate, {
+                    count,
+                    family: currentFamilyName,
+                    provider: currentProvider
+                });
+                statusBar.show();
+
+                if (highlightEnabled && tokenizerState.supportsHighlight && Array.isArray(tokens) && Array.isArray(offsets)) {
+                    const evenRanges = [];
+                    const oddRanges = [];
+
+                    for (let i = 0; i < tokens.length; i++) {
+                        const [start, end] = offsets[i];
+
+                        // Skip empty tokens
+                        if (start === end) {
+                            continue;
+                        }
+
+                        const startOffset = baseOffset + start;
+                        const endOffset = baseOffset + end;
+                        const range = new vscode.Range(
+                            document.positionAt(startOffset),
+                            document.positionAt(endOffset)
+                        );
+
+                        if (i % 2 === 0) {
+                            evenRanges.push(range);
+                        } else {
+                            oddRanges.push(range);
+                        }
+                    }
+
+                    editor.setDecorations(tokenDecorations.even, evenRanges);
+                    editor.setDecorations(tokenDecorations.odd, oddRanges);
+                } else {
+                    clearTokenHighlights(editor);
+                }
+
+                updateHighlightStatusBar();
+            } catch (error) {
+                vscode.window.showErrorMessage(`Qwen token counter error: ${error.message}`);
+                statusBar.hide();
+                clearTokenHighlights(editor);
+                updateHighlightStatusBar();
+            }
+            return;
+        }
+
+        // other models
         const { tokenCount, tokenizationResult } = computeTokenization(text);
 
         statusBar.text = applyStatusBarTemplate(statusBarTemplate, {
@@ -559,14 +719,26 @@ function activate(context) {
         updateHighlightStatusBar();
     };
 
-    vscode.window.onDidChangeTextEditorSelection(updateTokenCount, null, context.subscriptions);
-    vscode.window.onDidChangeActiveTextEditor(updateTokenCount, null, context.subscriptions);
-    vscode.workspace.onDidChangeTextDocument(updateTokenCount, null, context.subscriptions);
+    vscode.window.onDidChangeTextEditorSelection(
+        () => { void updateTokenCount(); },
+        null,
+        context.subscriptions
+    );
+    vscode.window.onDidChangeActiveTextEditor(
+        () => { void updateTokenCount(); },
+        null,
+        context.subscriptions
+    );
+    vscode.workspace.onDidChangeTextDocument(
+        () => { void updateTokenCount(); },
+        null,
+        context.subscriptions
+    );
 
     vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration(`${CONFIG_SECTION}.statusBarDisplayTemplate`)) {
             loadStatusBarConfig();
-            updateTokenCount();
+            void updateTokenCount();
         }
 
         if (event.affectsConfiguration(`${CONFIG_SECTION}.defaultModelFamily`)) {
@@ -581,7 +753,18 @@ function activate(context) {
                     vscode.window.showErrorMessage(`Failed to initialize tokenizer for ${currentFamilyName}: ${error.message}`);
                 }
 
-                updateTokenCount();
+                void updateTokenCount();
+            }
+        }
+
+        if (event.affectsConfiguration(`${CONFIG_SECTION}.qwenAutoStartServer`)) {
+            const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+            const autoStart = config.get('qwenAutoStartServer');
+
+            if (autoStart && currentProvider === 'qwen' && !qwenServerProcess && !isQwenServerStarting) {
+                void startQwenServer();
+            } else if (!autoStart && qwenServerProcess) {
+                stopQwenServer();
             }
         }
     }, null, context.subscriptions);
@@ -641,7 +824,7 @@ function activate(context) {
                     // Continue with approximation where applicable
                 }
 
-                updateTokenCount();
+                void updateTokenCount();
             }
         }
     });
@@ -652,7 +835,7 @@ function activate(context) {
         const nextState = !highlightEnabled;
 
         if (nextState && !tokenizerState.supportsHighlight) {
-            vscode.window.showInformationMessage('Token highlighting is only available for GPT and Claude tokenizers.');
+            vscode.window.showInformationMessage('Token highlighting is only available for GPT, Claude, and Qwen tokenizers.');
             highlightEnabled = false;
         } else if (nextState) {
             highlightEnabled = true;
@@ -667,7 +850,7 @@ function activate(context) {
         }
 
         updateHighlightStatusBar();
-        updateTokenCount();
+        void updateTokenCount();
     });
 
     context.subscriptions.push(toggleHighlight);
@@ -955,7 +1138,7 @@ function activate(context) {
             loadHighlightColors(context);
 
             refreshTokenDecorations();
-            updateTokenCount();
+            void updateTokenCount();
             panel.webview.postMessage({ type: 'colorUpdate', key, value: hexValue });
         };
 
@@ -974,7 +1157,7 @@ function activate(context) {
 
     // Initial update
     initializeEncoderForFamily(currentProvider);
-    updateTokenCount();
+    void updateTokenCount();
     updateHighlightStatusBar();
 }
 
@@ -983,6 +1166,9 @@ function deactivate() {
         tokenizerState.encoder.free();
         tokenizerState.encoder = null;
     }
+
+    // Stop the Qwen server when the extension deactivates
+    stopQwenServer();
 }
 
 module.exports = {

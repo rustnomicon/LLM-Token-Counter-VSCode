@@ -56,7 +56,8 @@
   },
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",
-    "tiktoken": "^1.0.22"
+    "tiktoken": "^1.0.22",
+    "node-fetch": "^3.3.2"
   },
   "contributes": {
     "commands": [
@@ -85,7 +86,8 @@
           "enum": [
             "openai",
             "anthropic",
-            "gemini"
+            "gemini",
+            "qwen"
           ],
           "default": "openai",
           "markdownDescription": "Model family selected by default when the extension activates."
@@ -94,21 +96,37 @@
           "type": "string",
           "default": "Token Count: {count} ({family})",
           "markdownDescription": "Template used for the status bar text. Supported placeholders: `{count}`, `{family}`, `{provider}` (alias `{model}` for family)."
+        },
+        "gpt-token-counter-live.qwenTokenServerUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8009/qwen/tokenize",
+          "markdownDescription": "URL of the local Qwen token counter service."
+        },
+        "gpt-token-counter-live.qwenAutoStartServer": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Automatically start the local Qwen token server (requires Python) when Qwen model family is used."
+        },
+        "gpt-token-counter-live.qwenPythonPath": {
+          "type": "string",
+          "default": "python",
+          "markdownDescription": "Python executable to use for starting the local Qwen token server (for example, python3 or C:\\\\Python39\\\\python.exe)."
         }
       }
-    }
-  },
-  "keywords": [
-    "GPT",
-    "OpenAI",
-    "Claude",
-    "Anthropic",
-    "Gemini",
-    "Google AI",
-    "Token",
-    "Counter",
-    "LLM",
-    "Language Model"
-  ],
-  "homepage": "https://github.com/BedirT/LLM-Token-Counter-VSCode/blob/main/README.md"
+    },
+    "keywords": [
+      "GPT",
+      "OpenAI",
+      "Claude",
+      "Anthropic",
+      "Gemini",
+      "Google AI",
+      "Token",
+      "Counter",
+      "LLM",
+      "Language Model",
+      "Qwen"
+    ],
+    "homepage": "https://github.com/BedirT/LLM-Token-Counter-VSCode/blob/main/README.md"
+  }
 }
